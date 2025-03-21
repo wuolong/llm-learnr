@@ -7,7 +7,7 @@ These are my notes from trying to learn more about "AI", including Large Languag
 - [Build LLM from Stratch](https://github.com/rasbt/LLMs-from-scratch) by Sebastian Raschka (2024) is excellent book that breaks down the black box of
   LLMs. The github site includes all source codes (Python, naturally) in the book.
   
-- [Build LLM for Statisticians](./build-llm/learnllm.md): my notes for reading through the book.
+- [Build LLM for Statisticians](./build-llm/learnllm.md): my notes for reading through the book ([pdf](./build_llm/buildllm.pdf)).
   
 
 ## Resources
