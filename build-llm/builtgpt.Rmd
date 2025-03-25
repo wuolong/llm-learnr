@@ -1,0 +1,357 @@
+---
+Time-stamp: "Sat Mar 22 21:40:44 EDT 2025 (nali@lutze)"
+title: Build GPT from Scratch
+author: Na (Michael) Li, Ph.D.
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document:
+    template: simple_latex.tex
+    keep_tex: true
+    highlight: tango
+    keep_md: true
+fontsize: 10pt
+urlcolor: blue
+params:
+  cache: FALSE
+---
+
+```{r knitr-options,cache=FALSE,echo=FALSE,message=FALSE}
+knitr::opts_chunk$set (autodep=TRUE,
+                       cache=params$cache,
+                       echo=params$echo,
+                       message=FALSE)
+options (                               # kable options
+    knitr.kable.NA = "")
+```
+
+# Introduction
+
+This notebook uses R to implement the LLM in the book [Build a LLM from Scratch](https://github.com/rasbt/LLMs-from-scratch). The book uses Python and
+[PyTorch](https://pytorch.org). With [torch in R](https://torch.mlverse.org), it is fairly straightforward to translate the codes. Besides familiarity, using R
+has another advantage in having fewer dependencies to worry out. With Python, one would be install another copy of
+Python (newer that the one shipped with Macs), myriads of other packages and worry about managing "virtual
+environment". It is also easier to run R in Emacs with Rmarkdown.
+
+```{r torch, eval=FALSE}
+install.packages(c("torch", "libtorch"))
+```
+
+A "module" (an object of class `nn_module` in Pytorch) in deep learning parlance is simply a mathematical function on
+a tensor input $x$. Upon creation (`initalize()`), fixed parameters (hyper-parameters, such as the dimension of the
+input) are set, and trainable parameters (weights) are initialized with random numbers. The `forward()` method defines
+the output of the function $f(x)$, and the `backward()` defines the gradient $f'(x)$ used in optimization.
+(back-propagation).
+
+Note that R uses FORTRAN-style indexing (starting from 1) while Python follows C-style (starting from 0).
+
+Some test data - storing the 
+```{r testing-data}
+library(torch)
+inputs <- torch_tensor(rbind(c(0.43, 0.15, 0.89), # Your
+                             c(0.55, 0.87, 0.66), # journey
+                             c(0.57, 0.85, 0.64), # starts
+                             c(0.22, 0.58, 0.33), # with
+                             c(0.77, 0.25, 0.10), # one
+                             c(0.05, 0.80, 0.55))) # step 
+```
+
+Stacking two $6 \times 3$ tensors at the 1st dimension to create a $2 \times 6 \times 3$ tensor.
+```{r stacking}
+batch <- torch_stack(c(inputs, inputs), dim = 1L)
+batch
+```
+
+# Transformer Block
+
+## Multi-Head Attention
+
+```{r multi-head-attention}
+multi_head_attention <-
+    nn_module(
+        classname = "multi_head_attention",
+        initialize = function(d.in,         # input dimension
+                                        # output dimension, must be divisible by num.head
+                              d.out,
+                              num.heads, #
+                              context.len,
+                              dropout, # droput rate, between 0 and 1
+                              qkv.bias = FALSE) {
+            stopifnot(d.out %% num.heads == 0)
+            self$d.out <- d.out
+            self$n.heads <- num.heads
+            self$head.d <- d.out %/% num.heads
+            ## three weight matrices Q, K, and V
+            self$W.query <- nn_linear(d.in, d.out, bias = qkv.bias)
+            self$W.key   <- nn_linear(d.in, d.out, bias = qkv.bias)
+            self$W.value <- nn_linear(d.in, d.out, bias = qkv.bias)
+            ## a linear layer to combine outputs
+            self$out.proj <- torch::nn_linear(d.out, d.out)
+            ## dropout
+            self$dropout <- torch::nn_dropout(dropout)
+            ## causal attention (mask) - convert to bool type
+            self$mask <- torch_triu(torch_ones(context.len, context.len),
+                                    diag = 1) > 0
+               
+           },
+           forward = function(x) {
+               b <- x$shape[1]
+               n.tokens <- x$shape[2]
+               d.in <- x$shape[3]
+
+               keys <- self$W.key(x)
+               queries <- self$W.query(x)
+               values <- self$W.value(x)
+               
+               ## "unroll" the last dimension d.out to a matrix
+               ## [b, n.tokens, d.out] -> [b, n.tokens, n.heads, head.d]
+               keys    <-    keys$view(c(b, n.tokens, self$n.heads, self$head.d))
+               queries <- queries$view(c(b, n.tokens, self$n.heads, self$head.d))
+               values  <-  values$view(c(b, n.tokens, self$n.heads, self$head.d))
+               
+               ## transpose -> [b, n.heads, n.tokens, head.d]
+               ## R index starts from 0,
+               keys <- keys$transpose(2, 3)
+               queries <- queries$transpose(2, 3)
+               values <- values$transpose(2, 3)
+               ## multiplication on the last two dimensions [n.tokens, head.d]
+               ## -> [b, n.heads, n.tokens, n.tokens]
+               attn.scores <- torch_matmul(queries, keys$transpose(3, 4))
+               ## apply mask on the last two dimensions
+               mask.bool <- self$mask[1:n.tokens, 1:n.tokens]
+               attn.scores$masked_fill_(mask.bool, -Inf)
+               attn.weights <- nn_softmax(-1)(attn.scores / sqrt(self$head.d))
+               attn.weights <- self$dropout(attn.weights)
+
+               ## -> [b, n.heads, n.tokens, head.d]
+               ## -> [b, n.tokens, n.heads, head.d]
+               context.vec <- torch_matmul(attn.weights, values)$transpose(2, 3)
+               ## flatten -> [b, n.tokens, d.out = n.heads * head.d]
+               context.vec <- context.vec$contiguous()$view(c(b, n.tokens, self$d.out))
+               context.vec <- self$out.proj(context.vec)
+               context.vec
+           })
+```
+
+To replicate the results from the book (Chapter 3, page 90), we have to use CPU because the random seed can't be set with MPS device.
+```{r test-mha}
+torch_manual_seed(123)
+mha <- multi_head_attention(d.in = batch$shape[3], d.out = 2,
+                            num.heads = 2, context.len = batch$shape[2], dropout = 0.0)
+context.vecs <- mha(batch)
+context.vecs
+```
+
+## Normalization Layer
+
+Normalize along the last dimension, subtract the mean and divide by the standard deviation. The biased estimate of variance (divided by $n$ instead of $n-1$) is used for historical reasons.
+
+```{r layernorm-block}
+layer_norm <-
+    nn_module(
+        classname = "layer_norm",
+        initialize = function(emb.dim) {
+            self$eps <- 1e-5
+            self$scale <- nn_parameter(torch_ones(emb.dim))
+            self$shift <- nn_parameter(torch_zeros(emb.dim))
+            
+        },
+        forward = function(x) {
+            mean <- x$mean(dim = -1, keepdim = TRUE)
+            var <- x$var(dim = -1, keepdim = TRUE, unbiased = FALSE)
+            norm.x <- (x - mean) / torch_sqrt(var + self$eps)
+            self$scale * norm.x + self$shift
+        })
+```
+
+Testing (Chapter 3, page 100):
+
+```{r test-layer-norm}
+torch_manual_seed(123)
+ex.tmp <- torch_randn(c(2, 5))
+layer.tmp <- nn_sequential(nn_linear(5, 6), nn_relu())
+(out.tmp <- layer.tmp(ex.tmp))
+ln <- layer_norm(out.tmp$shape[2])
+ln(out.tmp)
+```
+
+## Feed Forward
+
+A *feed forward* module is a small neural network consisting of two Linear layers and a GELU activation function. Its
+input and output have the same dimensions but the weights are bigger for "exploration of a richer representation
+space" (whatever that means).
+
+```{r feed-forwward}
+feed_forward <-
+    nn_module(
+        classname = "feedforward",
+        initialize = function(emb.dim) {
+            self$layers <- nn_sequential(nn_linear(emb.dim, 4 * emb.dim),
+                                         nn_gelu(),
+                                         nn_linear(4 * emb.dim, emb.dim))
+        },
+        forward = function(x) self$layers(x)
+    )
+```
+
+```{r test-feedforward}
+ffn <- feed_forward(out.tmp$shape[2])
+ffn(out.tmp)
+```
+
+## Transformer Block
+
+Putting everything together, a *transformer* module combines multi-head attention, layer normalization, dropout, feed
+forward layers, and GELU activation. It is the basic building block of LLMs and is repeated 12 times in the
+124-million-parameter GPT-2. This transformer model (*architecture*) is what distinguished LLMs from earlier deep
+neural network models such as convolutional (CNN) and recurrent (RNN) neural networks.
+
+Note that in a transformer, the shape of the output is the same as that of the input.  The preservation of shape
+throughout the transformer block architecture is a crucial aspect of its design
+
+First put the hyper-parameters (GPT-2) into a dictionary (a list is used to storage values of different storage types).
+```{r gpt2-config}
+GPT2.config <- list(vocab_size = 50257L, # Vocabulary size, used by the BPE tokenizer
+                    context_length = 1024L, # Context Length
+                    emb_dim = 768L, # Embedding dimension
+                    num_heads = 12L,  # Number of attention heads
+                    num_layers = 12L, # Number of (Transformer) Layers
+                    drop_rate =  0.1, # Dropout rate
+                    qkv_bias = FALSE # Quary-Key-Value bias
+                    )
+```
+
+Transformer module (Chapter 4, page 115):
+
+```{r transform-block}
+transformer_block <- nn_module(
+    classname = "transformer_block",
+    initialize = function(cfg) {
+        self$attn = multi_head_attention(d.in = cfg[["emb_dim"]],
+                                         d.out = cfg[["emb_dim"]], # same dimension output
+                                         num.heads = cfg[["num_heads"]],
+                                         context.len = cfg[["context_length"]],
+                                         dropout = cfg[["drop_rate"]],
+                                         qkv.bias = cfg[["qkv_bias"]])
+        self$ff = feed_forward(emb.dim = cfg[["emb_dim"]])
+        self$norm1 = layer_norm(emb.dim = cfg[["emb_dim"]])
+        self$norm2 = layer_norm(emb.dim = cfg[["emb_dim"]])
+        self$drop = nn_dropout(cfg[["drop_rate"]])
+        
+    },
+    forward = function(x) {
+        shortcut <- x # shortcut connection
+        x <- self$norm1(x)
+        x <- self$attn(x)
+        x <- self$drop(x)
+        x <- x + shortcut
+
+        shortcut <- x
+        x <- self$norm2(x)
+        x <- self$ff(x)
+        x <- self$drop(x)
+        x <- x + shortcut
+        x
+    })
+```
+
+Testing 
+```{r test-transfomer}
+x <- torch_randn(2, 4, GPT2.config[["emb_dim"]])
+block <- transformer_block(GPT2.config)
+output <- block(x)
+rbind("input shape" = x$shape, "output shape" = output$shape)
+```
+
+## The GPT Model
+
+Finally the GPT model is simply made up initial embedding layers, multiple layers of transformers, and final output layer.
+
+```{r gpt-model}
+gpt_model <- nn_module(
+    classname = "gpt_model",
+    initialize = function(cfg) {
+        emb.d <- cfg[["emb_dim"]]
+        self$tok.emb <- nn_embedding(cfg[["vocab_size"]], emb.d)
+        self$pos.emb <- nn_embedding(cfg[["context_length"]], emb.d)
+        self$drop.emb <- nn_dropout(cfg[["drop_rate"]])
+        ## a trick to allow variable number of layers
+        self$tfr.blocks <- do.call("nn_sequential",
+                                   lapply(seq(cfg[["n_layers"]]),
+                                          function(x) transform_block(cfg)))
+        self$final.norm <- layer_norm(emb.d)
+        self$out.head <- nn_linear(emb.d,  cfg[["vocab_size"]], bias = FALSE)
+        
+    },
+    forward = function(idx) { # a matrix where each row is a vector of tokens (integer)
+        batch.size <- idx$shape[1]
+        seq.len <- idx$shape[2]
+        tok.embeds <- self$tok.emb(idx)
+        pos.embeds <- self$pos.emb(torch_arange(seq.len))
+        x <- tok.embeds + pos.embeds # embedding
+        x <- self$drop.emb(x)        # dropout
+        x <- self$tfr.blocks(x)      # transformer blocks
+        x <- self$final.norm(x)      # final normalization
+        self$out.head(x)             # output
+    })
+```
+
+Test the GPT model (Chapter 4, page 120)
+```{r gpt-model-test}
+txt <- c("Every effort moves you", "Every day holds a")
+(batch <- torch_tensor(do.call("rbind", rtiktoken::get_tokens(txt, "gpt2")), dtype = "long"))
+torch_manual_seed(123)
+model <- gpt_model(GPT2.config)
+out <- model(batch)
+out
+```
+
+To calculate the number of parameters in the model, those in the transformers are not included by default.
+
+```{r model-parameters}
+names(model$parameters)
+names(block$parameters) # transformer
+total.params <- sum(sapply(model$parameters, function(x) x$numel())) +
+    sum(sapply(block$parameters, function(x) x$numel())) * 12
+cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
+gpt2.params <- total.params - model$parameters$out.head.weight$numel()
+cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
+cat("Total number of parameters in GPT-2 is: ", scales::label_comma()(gpt2.params), "\n") 
+```
+
+## Generating Text
+
+To generate text, the output vector is converted to multinomial probabilities by a softmax function, and this simple function returns the token with the highest probability.
+
+```{r simple-text}
+simple.text.generator <- function(model,
+                                  idx, # (batch, n_tokens)
+                                  max.new.tokens, context.size) {
+    for (i in seq(max.new.tokens)) {
+        n <- ncol(idx)
+        idx.cond <- idx[, min(1, (n-context.size)):n] # lacking Pythong's shortcut [:, -context.size:]
+        with_no_grad(logits <- model(idx.cond))  # (batch, n_tokens, vocab_size)
+        logits <- logits[,logits$shape[2],] # (batch, vocab_size)
+        probs <- nn_softmax(-1)(logits)     # (batch, vocab_size)
+        idx.next <- torch_argmax(probs, dim = -1, keepdim = TRUE)
+        ## adding the predicted token to the list of tokens
+        idx <- torch_cat(c(idx, idx.next), dim = 2)
+    }
+    idx
+}
+```
+
+Testing generating text from the GPT model (Chapter 4, page 126)
+```{r test-text-generator}
+start.context <- "Hello, I am"
+(encoded <- rtiktoken::get_tokens(start.context, model = "gpt2"))
+(encoded.tensor = torch_tensor(encoded, dtype = "long")$unsqueeze(1)) # -> 1 x 4 tensor
+model$eval()                                                          # no dropout in 'eval' mode
+(out <- simple.text.generator(model, encoded.tensor, 6,
+                              context.size = GPT2.config[["context_length"]]))
+```
+
+The decoded text is gibberish since the model has not been trained yet.
+
+```{r decode-generated-text}
+(decoded.text = rtiktoken::decode_tokens(out, model = "gpt2"))
+```

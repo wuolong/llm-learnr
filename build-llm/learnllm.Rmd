@@ -1,7 +1,8 @@
 ---
-Time-stamp: "Fri Mar 21 11:32:30 EDT 2025 (nali@lutze)"
+Time-stamp: "Fri Mar 21 13:20:51 EDT 2025 (nali@lutze)"
 title: Building LLM for Statisticians
-author: Na (Michael) Li, PhD
+author: Na (Michael) Li, PhD (wuolong@gmail.com)
+date: "`r paste('Updated:', format(Sys.time(), '%d %B %Y'))`"
 output:
   beamer_presentation:
     template: simple_beamer.tex
@@ -441,23 +442,4 @@ x <- nn_sequential(nn_linear(d.in = emb.d, d.out = 4 * emb.d),
                    nn_linear(d.in = 4 * emb.d, d.out = emb.d))(x) # feed forward
 x <- dropout(x)
 output <- x + shortcut
-```
-
-```{r layernorm-block}
-layer_norm <- torch::nn_module(
-    classname = "layer_norm",
-    initialize = function(emb.dim) {
-        self$eps <- 1e-5
-        self$scale <- torch::nn_parameter(torch::torch_ones(emb.dim))
-        self$shift <- torch::nn_parameter(torch::torch_zeros(emb.dim))
-        
-    },
-    forward = function(x) {
-        mean <- x$mean(dim = -1, keepdim = TRUE)
-        var <- x$var(dim = -1, keepdim = TRUE, unbiased = FALSE)
-        norm.x <- (x - mean) / torch::torch_sqrt(var + self$eps)
-        self$scale * norm.x + self$shift
-    }
-)
-ln <- layer_norm(5)
 ```
