@@ -1,8 +1,8 @@
 ---
-Time-stamp: "Sat Mar 22 21:40:44 EDT 2025 (nali@lutze)"
+Time-stamp: "Mon Mar 31 13:50:26 EDT 2025 (nali@lutze)"
 title: Build GPT from Scratch
 author: Na (Michael) Li, Ph.D.
-date: "22 March, 2025"
+date: "31 March, 2025"
 output:
   pdf_document:
     template: simple_latex.tex
@@ -27,7 +27,8 @@ environment". It is also easier to run R in Emacs with Rmarkdown.
 
 
 ``` r
-install.packages(c("torch", "libtorch"))
+install.packages("torch")
+torch::install_torch()
 ```
 
 A "module" (an object of class `nn_module` in Pytorch) in deep learning parlance is simply a mathematical function on
@@ -359,8 +360,8 @@ gpt_model <- nn_module(
         self$drop.emb <- nn_dropout(cfg[["drop_rate"]])
         ## a trick to allow variable number of layers
         self$tfr.blocks <- do.call("nn_sequential",
-                                   lapply(seq(cfg[["n_layers"]]),
-                                          function(x) transform_block(cfg)))
+                                   lapply(seq(cfg[["num_layers"]]),
+                                          function(x) transformer_block(cfg)))
         self$final.norm <- layer_norm(emb.d)
         self$out.head <- nn_linear(emb.d,  cfg[["vocab_size"]], bias = FALSE)
         
@@ -402,66 +403,45 @@ out
 ```
 ## torch_tensor
 ## (1,.,.) = 
-##  Columns 1 to 6  4.9812e-02 -8.5333e-02  3.5099e-01 -7.9987e-01  3.9503e-01  4.4202e-02
-##  -2.4154e-01  4.1238e-02 -2.6025e-01 -6.8923e-01  3.5534e-01  1.3067e-01
-##  -2.7984e-01  6.6339e-01  5.1692e-02 -1.6187e-01  4.9106e-01 -2.3172e-01
-##   8.1612e-02 -1.0745e-01  8.9734e-02 -6.9759e-01  7.9328e-01  2.3387e-01
+##  Columns 1 to 6  1.4593e+00  3.1971e-01  6.0224e-01  3.3625e-01  3.7032e-01 -6.6830e-01
+##  -2.0472e-01  1.6462e-01 -4.0896e-01  9.9220e-02 -6.5007e-02  8.0615e-02
+##   8.1893e-01  7.8078e-01  3.0777e-01  3.7483e-01  4.5006e-03  4.1724e-01
+##  -8.5622e-01  8.6768e-03  1.0867e-01 -9.7716e-02 -2.1040e-01  8.1199e-02
 ## 
-## Columns 7 to 12  3.3244e-01  7.8701e-01 -2.4923e-01 -2.2488e-01  2.7340e-01  7.0325e-01
-##   2.5381e-01 -3.6661e-02 -1.4506e-02  1.1237e-01 -5.4725e-02 -1.0488e+00
-##   7.4255e-01  6.6313e-02 -4.2734e-01 -2.0582e-01  6.1030e-01 -5.4832e-02
-##   3.3793e-01  1.9311e-01 -4.7081e-01 -9.1175e-02  6.2830e-02  2.8417e-01
+## Columns 7 to 12 -2.2592e-01  6.4881e-01  5.3089e-01  2.5143e-01  4.5661e-02 -1.5140e-01
+##  -3.2609e-01 -4.2830e-01  1.3508e+00  1.1869e+00 -9.2019e-02  1.7794e-01
+##  -1.0332e-01  6.9154e-01  8.4409e-04  1.2893e+00 -5.0486e-01  9.4459e-01
+##   9.6265e-02  3.1245e-01  1.1621e-01  7.0639e-01  5.9318e-01  3.4117e-01
 ## 
-## Columns 13 to 18 -1.8434e-01  1.6245e-01  7.1468e-01 -4.3356e-02  1.5046e-01 -9.8167e-02
-##   4.9894e-02  9.7352e-01  3.8252e-01 -1.5774e-01  6.5945e-02  5.3923e-01
-##   6.7166e-02  2.9365e-01 -4.9380e-02 -2.3591e-01  2.3050e-01 -4.7887e-01
-##   4.4041e-01 -6.8079e-01 -3.1744e-01  8.8483e-02 -4.3997e-01 -8.1652e-01
+## Columns 13 to 18  4.9941e-01  5.1920e-01  6.4758e-01  1.0130e+00 -2.4650e-01  1.6234e+00
+##  -2.6004e-02 -1.1146e+00  4.6488e-01  6.4222e-01 -8.5051e-01  4.7130e-01
+##   1.0719e-01 -1.8617e-01 -3.9632e-01 -3.4621e-02 -1.0718e-02 -8.7991e-01
+##  -3.2673e-01  2.0255e-01  1.5022e-02 -2.6259e-01  2.5709e-01  4.0163e-01
 ## 
-## Columns 19 to 24 -1.2355e-01 -8.9558e-02 -2.6379e-02 -1.1131e+00 -1.8514e-01 -6.7371e-01
-##  -1.0666e-02  2.9592e-01 -1.1487e+00 -1.5574e-01 -1.9457e-01  4.7970e-01
-##   2.3867e-01  1.1595e-01 -1.2539e+00 -1.6907e+00  6.5035e-01  1.3211e-01
-##   4.8219e-01  5.8374e-01 -9.0964e-01  8.1298e-01 -5.4690e-01 -2.9014e-01
+## Columns 19 to 24  1.4839e+00  8.3255e-03  5.8839e-01 -4.4515e-01  9.7905e-02 -8.5936e-01
+##   1.0204e-01  3.4152e-02  1.3470e-01 -1.0938e+00 -4.6612e-01  2.2549e-01
+##   7.9313e-01  6.3839e-01  1.9227e-01 -5.3041e-02  2.3833e-01 -1.6479e-01
+##  -4.5306e-01  1.0328e+00 -9.0633e-01 -9.6356e-01 -2.8546e-01 -1.3975e-01
 ## 
-## Columns 25 to 30 -4.0267e-01  4.7126e-01  2.8564e-01  6.8761e-01 -4.9395e-03 -2.1642e-01
-##  -8.6685e-01 -2.5919e-01  4.0552e-01 -9.6107e-02 -4.4045e-01  5.8615e-02
-##  -1.2209e-01 -3.7145e-01  1.3516e+00 -2.3832e-01  3.3860e-01 -3.9642e-01
-##  -3.0390e-01 -1.5423e-01 -1.3865e-01  5.0394e-01 -1.9379e-01 -2.9519e-01
+## Columns 25 to 30 -5.6907e-01  4.0515e-01 -3.9161e-01 -6.1416e-01  1.6509e-01  9.4325e-01
+##  -7.4596e-01 -4.4881e-01  9.1341e-01 -7.4767e-01  3.9105e-01  5.7092e-01
+##  -1.7102e-01  2.9709e-01  4.3593e-01  2.4054e-01  2.5153e-01  1.0420e-01
+##  -1.8727e+00  1.7983e-01 -4.3142e-01 -1.4966e-02  5.9813e-01  4.2204e-01
 ## 
-## Columns 31 to 36 -4.7355e-01 -4.3655e-01  9.4777e-01  6.9518e-02 -9.9259e-01 -3.5397e-01
-##  -1.8243e+00 -2.2205e-01  4.9121e-01 -8.7631e-01 -2.5314e-02  7.9202e-01
-##  -4.9348e-01 -1.4455e-01 -2.8629e-01 -3.1325e-02  1.7280e-02  5.9226e-01
-##  -5.9816e-01 -1.4273e-01 -4.8916e-01 -1.3310e-01  1.1433e-01 -1.0060e+00
+## Columns 31 to 36 -1.1197e-01  6.7174e-01 -8.2168e-01 -8.1264e-01  3.2899e-01  3.8802e-02
+##   1.9537e-01  5.2022e-01 -4.8574e-01 -3.8242e-01 -7.2619e-03  9.1579e-01
+##  -8.3569e-02  4.7754e-01  1.2863e+00  2.8164e-01 -9.3445e-01  2.7093e-01
+##  -6.8711e-01  5.6206e-01 -4.1818e-01 -5.7161e-01 -7.1047e-01  8.8437e-01
 ## ... [the output was truncated (use n=-1 to disable)]
 ## [ CPUFloatType{2,4,50257} ][ grad_fn = <UnsafeViewBackward0> ]
 ```
 
-To calculate the number of parameters in the model, those in the transformers are not included by default.
+The total number of parameters in the model. In GPT-2 the output layer reuses the same weights from the token
+embedding layer hence has fewer parameters.
 
 
 ``` r
-names(model$parameters)
-```
-
-```
-## [1] "tok.emb.weight"   "pos.emb.weight"   "final.norm.scale" "final.norm.shift"
-## [5] "out.head.weight"
-```
-
-``` r
-names(block$parameters) # transformer
-```
-
-```
-##  [1] "attn.W.query.weight"  "attn.W.key.weight"    "attn.W.value.weight" 
-##  [4] "attn.out.proj.weight" "attn.out.proj.bias"   "ff.layers.0.weight"  
-##  [7] "ff.layers.0.bias"     "ff.layers.2.weight"   "ff.layers.2.bias"    
-## [10] "norm1.scale"          "norm1.shift"          "norm2.scale"         
-## [13] "norm2.shift"
-```
-
-``` r
-total.params <- sum(sapply(model$parameters, function(x) x$numel())) +
-    sum(sapply(block$parameters, function(x) x$numel())) * 12
+total.params <- sum(sapply(model$parameters, function(x) x$numel()))
 cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
 ```
 
@@ -471,14 +451,6 @@ cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n"
 
 ``` r
 gpt2.params <- total.params - model$parameters$out.head.weight$numel()
-cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
-```
-
-```
-## Total number of parameters is:  163,009,536
-```
-
-``` r
 cat("Total number of parameters in GPT-2 is: ", scales::label_comma()(gpt2.params), "\n") 
 ```
 
@@ -538,7 +510,7 @@ model$eval()                                                          # no dropo
 
 ```
 ## torch_tensor
-##  15496     11    314    716  29198  43066  35549  11017  49294   3788
+##  15496     11    314    716  13008  49330  41978   4272   9914  19960
 ## [ CPULongType{1,10} ]
 ```
 
@@ -550,5 +522,5 @@ The decoded text is gibberish since the model has not been trained yet.
 ```
 
 ```
-## [1] "Hello, I am Shap Sloan911vas 421 software"
+## [1] "Hello, I am wallet resided brochalingCar tended"
 ```
