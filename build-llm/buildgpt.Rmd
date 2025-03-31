@@ -1,5 +1,5 @@
 ---
-Time-stamp: "Mon Mar 31 13:47:36 EDT 2025 (nali@lutze)"
+Time-stamp: "Mon Mar 31 13:50:26 EDT 2025 (nali@lutze)"
 title: Build GPT from Scratch
 author: Na (Michael) Li, Ph.D.
 date: "`r format(Sys.time(), '%d %B, %Y')`"
@@ -311,8 +311,8 @@ embedding layer hence has fewer parameters.
 
 ```{r model-parameters}
 total.params <- sum(sapply(model$parameters, function(x) x$numel()))
-gpt2.params <- total.params - model$parameters$out.head.weight$numel()
 cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
+gpt2.params <- total.params - model$parameters$out.head.weight$numel()
 cat("Total number of parameters in GPT-2 is: ", scales::label_comma()(gpt2.params), "\n") 
 ```
 
