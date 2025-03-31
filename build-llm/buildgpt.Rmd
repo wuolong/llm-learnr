@@ -1,5 +1,5 @@
 ---
-Time-stamp: "Sat Mar 22 21:40:44 EDT 2025 (nali@lutze)"
+Time-stamp: "Mon Mar 31 13:47:36 EDT 2025 (nali@lutze)"
 title: Build GPT from Scratch
 author: Na (Michael) Li, Ph.D.
 date: "`r format(Sys.time(), '%d %B, %Y')`"
@@ -33,7 +33,8 @@ Python (newer that the one shipped with Macs), myriads of other packages and wor
 environment". It is also easier to run R in Emacs with Rmarkdown.
 
 ```{r torch, eval=FALSE}
-install.packages(c("torch", "libtorch"))
+install.packages("torch")
+torch::install_torch()
 ```
 
 A "module" (an object of class `nn_module` in Pytorch) in deep learning parlance is simply a mathematical function on
@@ -276,8 +277,8 @@ gpt_model <- nn_module(
         self$drop.emb <- nn_dropout(cfg[["drop_rate"]])
         ## a trick to allow variable number of layers
         self$tfr.blocks <- do.call("nn_sequential",
-                                   lapply(seq(cfg[["n_layers"]]),
-                                          function(x) transform_block(cfg)))
+                                   lapply(seq(cfg[["num_layers"]]),
+                                          function(x) transformer_block(cfg)))
         self$final.norm <- layer_norm(emb.d)
         self$out.head <- nn_linear(emb.d,  cfg[["vocab_size"]], bias = FALSE)
         
@@ -305,14 +306,11 @@ out <- model(batch)
 out
 ```
 
-To calculate the number of parameters in the model, those in the transformers are not included by default.
+The total number of parameters in the model. In GPT-2 the output layer reuses the same weights from the token
+embedding layer hence has fewer parameters.
 
 ```{r model-parameters}
-names(model$parameters)
-names(block$parameters) # transformer
-total.params <- sum(sapply(model$parameters, function(x) x$numel())) +
-    sum(sapply(block$parameters, function(x) x$numel())) * 12
-cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
+total.params <- sum(sapply(model$parameters, function(x) x$numel()))
 gpt2.params <- total.params - model$parameters$out.head.weight$numel()
 cat("Total number of parameters is: ", scales::label_comma()(total.params), "\n")
 cat("Total number of parameters in GPT-2 is: ", scales::label_comma()(gpt2.params), "\n") 
