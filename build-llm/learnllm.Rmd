@@ -1,5 +1,5 @@
 ---
-Time-stamp: "Fri Mar 21 13:20:51 EDT 2025 (nali@lutze)"
+Time-stamp: "Mon Mar 31 14:54:05 EDT 2025 (nali@lutze)"
 title: Building LLM for Statisticians
 author: Na (Michael) Li, PhD (wuolong@gmail.com)
 date: "`r paste('Updated:', format(Sys.time(), '%d %B %Y'))`"
@@ -426,20 +426,84 @@ ggplot(exdata, aes(x = x, y = y)) + geom_line() + facet_wrap(~ f) + theme_bw()
 - A *transformer* block combines multi-head attention, layer normalization, dropout, feed forward layers, and GELU
   activations. It is the basic building block of a LLM and is repeated 12 times in the 124-million-parameter GPT-2.
 
+- In Pytorch, a "module" (`nn_module`) is simply a mathematical function on a tensor input $x$. Upon creation
+  (`initalize()`), fixed parameters (hyper-parameters, such as the dimension of the input) are set, and trainable
+  parameters (weights) are initialized with random numbers. The `forward()` method defines the output of the function
+  $f(x)$, and `backward()` defines the gradient $f'(x)$ for optimization (through back-propagation).
+
 ## Implementing a Transformer Block
 
-```{r transformer-block, tidy=FALSE, eval=FALSE}
-x <- input
-shortcut <- x
-x <- layer_norm(x)
-x <- multi_head_attention(x)
-x <- dropout(x)
-x <- x + shortcut
-shortcut <- x
-x <- layer_norm(x)
-x <- nn_sequential(nn_linear(d.in = emb.d, d.out = 4 * emb.d),
-                   GELU(),
-                   nn_linear(d.in = 4 * emb.d, d.out = emb.d))(x) # feed forward
-x <- dropout(x)
-output <- x + shortcut
+Completed code can be found at [buildgpt.Rmd](https://github.com/wuolong/llm-learnr/blob/main/build-llm/buildgpt.md)
+```{r transform-block, eval=FALSE}
+transformer_block <- nn_module(
+    classname = "transformer_block",
+    initialize = function(cfg) {
+        self$attn = multi_head_attention(d.in = cfg[["emb_dim"]],  # MHA layer
+                                         d.out = cfg[["emb_dim"]], # same dimension output
+                                         num.heads = cfg[["num_heads"]],
+                                         context.len = cfg[["context_length"]],
+                                         dropout = cfg[["drop_rate"]],
+                                         qkv.bias = cfg[["qkv_bias"]])
+        self$ff = feed_forward(emb.dim = cfg[["emb_dim"]])  # feed forward layper
+        self$norm1 = layer_norm(emb.dim = cfg[["emb_dim"]]) # normalization layer
+        self$norm2 = layer_norm(emb.dim = cfg[["emb_dim"]]) # normalization layer
+        self$drop = nn_dropout(cfg[["drop_rate"]])          # dropout
+        
+    },
+    forward = function(x) {
+        shortcut <- x # shortcut connection
+        x <- x |> self$norm1() |> self$attn() |> self$drop()
+        x <- x + shortcut
+
+        shortcut <- x
+        x <- x |> self$norm2() |> self$ff() |> self$drop()
+        x + shortcut
+    })
+```
+
+## GPT Model 
+
+Finally the GPT model is simply made up of initial embedding layers, multiple layers of transformers, and final output
+layer.
+
+```{r gpt-model, eval=FALSE}
+gpt_model <- nn_module(
+    classname = "gpt_model",
+    initialize = function(cfg) {
+        emb.d <- cfg[["emb_dim"]]
+        self$tok.emb <- nn_embedding(cfg[["vocab_size"]], emb.d)
+        self$pos.emb <- nn_embedding(cfg[["context_length"]], emb.d)
+        self$drop.emb <- nn_dropout(cfg[["drop_rate"]])
+        ## a trick to allow variable number of layers
+        self$tfr.blocks <- do.call("nn_sequential",
+                                   lapply(seq(cfg[["num_layers"]]),
+                                          function(x) transformer_block(cfg)))
+        self$final.norm <- layer_norm(emb.d)
+        self$out.head <- nn_linear(emb.d,  cfg[["vocab_size"]], bias = FALSE)
+        
+    },
+    forward = function(idx) { # a matrix where each row is a vector of tokens (integer)
+        batch.size <- idx$shape[1]
+        seq.len <- idx$shape[2]
+        tok.embeds <- self$tok.emb(idx)
+        pos.embeds <- self$pos.emb(torch_arange(seq.len))
+        x <- tok.embeds + pos.embeds # embedding
+        ## dropout -> transformer layers -> normalization -> output
+        x |> self$drop.emb() |> self$tfr.blocks() |> self$final.norm() |> self$out.head()
+    })
+```
+
+# Pretraining LLM
+
+## Data Loader
+
+```{r }
+GPTDatasetV1 <- dataset(
+    name = "GPTdatasetv1",
+    initialize = function(txt, max.length, stride, model = "gpt2") {
+        self$input.ids <- self$target.ids <- NULL
+        token.ids <- rtiktoken::get_tokens(txt, model)
+        iseq <- seq(from = 1, to = length(token.ids) - max.length, by = stride)
+        token.ids[iseq
+    }
 ```

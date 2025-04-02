@@ -1,5 +1,5 @@
 ---
-Time-stamp: "Mon Mar 31 13:50:26 EDT 2025 (nali@lutze)"
+Time-stamp: "Mon Mar 31 14:16:24 EDT 2025 (nali@lutze)"
 title: Build GPT from Scratch
 author: Na (Michael) Li, Ph.D.
 date: "`r format(Sys.time(), '%d %B, %Y')`"
@@ -241,17 +241,12 @@ transformer_block <- nn_module(
     },
     forward = function(x) {
         shortcut <- x # shortcut connection
-        x <- self$norm1(x)
-        x <- self$attn(x)
-        x <- self$drop(x)
+        x <- x |> self$norm1() |> self$attn() |> self$drop()
         x <- x + shortcut
 
         shortcut <- x
-        x <- self$norm2(x)
-        x <- self$ff(x)
-        x <- self$drop(x)
-        x <- x + shortcut
-        x
+        x <- x |> self$norm2() |> self$ff() |> self$drop()
+        x + shortcut
     })
 ```
 
@@ -265,7 +260,7 @@ rbind("input shape" = x$shape, "output shape" = output$shape)
 
 ## The GPT Model
 
-Finally the GPT model is simply made up initial embedding layers, multiple layers of transformers, and final output layer.
+Finally the GPT model is simply made up of initial embedding layers, multiple layers of transformers, and final output layer.
 
 ```{r gpt-model}
 gpt_model <- nn_module(
@@ -289,10 +284,8 @@ gpt_model <- nn_module(
         tok.embeds <- self$tok.emb(idx)
         pos.embeds <- self$pos.emb(torch_arange(seq.len))
         x <- tok.embeds + pos.embeds # embedding
-        x <- self$drop.emb(x)        # dropout
-        x <- self$tfr.blocks(x)      # transformer blocks
-        x <- self$final.norm(x)      # final normalization
-        self$out.head(x)             # output
+        ## dropout -> transformer layers -> normalization -> output
+        x |> self$drop.emb() |> self$tfr.blocks() |> self$final.norm() |> self$out.head()
     })
 ```
 
